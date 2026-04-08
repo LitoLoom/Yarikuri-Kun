@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>やりくり君　（資金移動計算ツール）</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+            const [view, setView] = useState('calc');
+            const [accounts, setAccounts] = useState(() => {
+                const saved = localStorage.getItem('accounts');
+                return saved ? JSON.parse(saved) : [{ id: 1, name: 'メイン銀行', isMain: true, currentBalance: 0 }];
+            });
+            const [items, setItems] = useState(() => {
+                const saved = localStorage.getItem('items');
+                return saved ? JSON.parse(saved) : [];
+            });
+
+            useEffect(() => {
+                localStorage.setItem('accounts', JSON.stringify(accounts));
+                localStorage.setItem('items', JSON.stringify(items));
+            }, [accounts, items]);
+
+            // 銀行削除関数（メイン口座は削除不可にする安全策付き）
+            const deleteAccount = (id) => {
+                const target = accounts.find(a => a.id === id);
+                if (target.isMain) {
+                    alert("メイン口座は削除できません。他の口座をメインに設定してから削除してください。");
+                    return;
+                }
+                if (confirm(`${target.name}を削除しますか？この銀行に紐づく設定も解除されます。`)) {
+                    setAccounts(accounts.filter(a => a.id !== id));
+                    // 削除された銀行に紐づいていた支出をメイン銀行に逃がす
+                    setItems(items.map(i => i.accId === id ? {...i, accId: accounts.find(a => a.isMain).id} : i));
+                }
+            };
+
+            const mainAcc = accounts.find(a => a.isMain) || accounts[0];
+            const transfers = accounts.filter(a => !a.isMain).map(acc => {
+                const outgo = items.filter(i => i.accId === acc.id).reduce((s, i) => s + Number(i.amt), 0);
+                const diff = acc.currentBalance - outgo;
+                return { name: acc.name, diff: diff < 0 ? Math.abs(diff) : 0 };
+            }).filter(t => t.diff > 0);
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen bg-gray-50 pb-24 font-sans text-gray-800">
+                    <header className="bg-blue-600 text-white p-6 shadow-md text-center">
+                        <h1 className="text-xl font-bold">資金移動くん</h1>
+                    </header>
+
+                    <main className="p-4">
+                        {view === 'calc' ? (
+                            <div className="space-y-6">
+                                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                    <h2 className="font-bold mb-4 text-gray-500 text-xs uppercase tracking-wider">1. 今の残高を入力</h2>
+                                    {accounts.map(acc => (
+                                        <div key={acc.id} className="flex justify-between items-center mb-4 border-b border-gray-50 pb-2">
+                                            <span className="text-sm font-bold">{acc.name}{acc.isMain && <span className="ml-2 text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded">メイン</span>}</span>
+                                            <div className="flex items-center gap-1">
+                                                <input type="number" className="border rounded-lg p-2 w-28 text-right bg-gray-50 outline-none focus:ring-2 focus:ring-blue-400 text-sm font-mono" 
+                                                    value={acc.currentBalance} 
+                                                    onChange={e => setAccounts(accounts.map(a => a.id === acc.id ? {...a, currentBalance: Number(e.target.value)} : a))} />
+                                                <span className="text-xs text-gray-400">円</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="bg-orange-50 border border-orange-200 p-5 rounded-2xl">
+                                    <h2 className="font-bold text-orange-800 mb-4 text-sm">🚀 必要な移動指示</h2>
+                                    {transfers.length > 0 ? transfers.map((t, i) => (
+                                        <div key={i} className="bg-white p-4 rounded-xl mb-3 flex justify-between shadow-sm items-center border-l-4 border-orange-400">
+                                            <div>
+                                                <p className="text-[10px] text-gray-400 font-bold">{mainAcc?.name} から</p>
+                                                <p className="font-bold">{t.name} へ</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-orange-600 font-black text-xl">{t.diff.toLocaleString()}<span className="text-xs ml-1">円</span></p>
+                                            </div>
+                                        </div>
+                                    )) : <p className="text-center text-sm text-gray-500 py-4 font-medium">全ての口座が予算内です ✨</p>}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                <section className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h2 className="font-bold text-gray-700 text-sm font-bold text-xs uppercase tracking-wider">銀行口座の設定</h2>
+                                        <button className="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold" onClick={() => {
+                                            const n = prompt("銀行名を入力");
+                                            if(n) setAccounts([...accounts, {id: Date.now(), name: n, isMain: false, currentBalance: 0}]);
+                                        }}>+ 追加</button>
+                                    </div>
+                                    {accounts.map(acc => (
+                                        <div key={acc.id} className="flex justify-between items-center mb-2 bg-gray-50 p-2 rounded-lg">
+                                            <span className="text-sm font-medium">{acc.name}</span>
+                                            <div className="flex gap-2">
+                                                {!acc.isMain && (
+                                                    <button onClick={() => setAccounts(accounts.map(a => ({...a, isMain: a.id === acc.id})))} className="text-[10px] text-blue-500 border border-blue-200 px-2 py-1 rounded bg-white">メインにする</button>
+                                                )}
+                                                <button onClick={() => deleteAccount(acc.id)} className="text-red-400 p-1 text-lg">×</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </section>
+
+                                <section className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h2 className="font-bold text-gray-700 text-xs uppercase tracking-wider">定例支出の設定</h2>
+                                        <button className="bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold" onClick={() => setItems([...items, {id: Date.now(), name: '', amt: 0, accId: mainAcc.id}])}>+ 追加</button>
+                                    </div>
+                                    {items.map(item => (
+                                        <div key={item.id} className="flex flex-col gap-2 mb-6 border-b border-gray-50 pb-4">
+                                            <div className="flex gap-2">
+                                                <input className="border rounded p-2 text-sm w-full bg-gray-50 focus:bg-white outline-none" placeholder="項目名（例：家賃）" value={item.name} onChange={e => setItems(items.map(i => i.id === item.id ? {...i, name: e.target.value} : i))} />
+                                                <button className="text-red-400 px-2 text-xl" onClick={() => setItems(items.filter(i => i.id !== item.id))}>×</button>
+                                            </div>
+                                            <div className="flex gap-2 items-center">
+                                                <div className="relative w-full">
+                                                    <input type="number" className="border rounded p-2 w-full text-right bg-gray-50 pr-6 text-sm font-mono" placeholder="0" value={item.amt} onChange={e => setItems(items.map(i => i.id === item.id ? {...i, amt: Number(e.target.value)} : i))} />
+                                                    <span className="absolute right-2 top-2 text-gray-400 text-xs">円</span>
+                                                </div>
+                                                <select className="border rounded p-2 text-xs bg-gray-50 w-full font-bold text-gray-600" value={item.accId} onChange={e => setItems(items.map(i => i.id === item.id ? {...i, accId: Number(e.target.value)} : i))}>
+                                                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </section>
+                            </div>
+                        )}
+                    </main>
+
+                    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around p-4 shadow-lg z-50">
+                        <button onClick={() => setView('calc')} className={`flex flex-col items-center gap-1 w-1/2 ${view === 'calc' ? "text-blue-600" : "text-gray-400"}`}>
+                            <span className="text-xs font-black">計算</span>
+                            <div className={`h-1 w-8 rounded-full ${view === 'calc' ? "bg-blue-600" : "bg-transparent"}`}></div>
+                        </button>
+                        <button onClick={() => setView('settings')} className={`flex flex-col items-center gap-1 w-1/2 ${view === 'settings' ? "text-blue-600" : "text-gray-400"}`}>
+                            <span className="text-xs font-black">設定</span>
+                            <div className={`h-1 w-8 rounded-full ${view === 'settings' ? "bg-blue-600" : "bg-transparent"}`}></div>
+                        </button>
+                    </nav>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
